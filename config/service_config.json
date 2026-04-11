@@ -1,0 +1,6 @@
+{
+  "vantage": {"url": "http://vantage-mcp-server"},
+  "alpaca": {"url": "http://alpaca-mcp-server"},
+  "risk_gatekeeper": {"url": "http://localhost:8000"},
+  "webhook": {"url": "http://localhost:8000/webhook"}
+}

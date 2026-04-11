@@ -1,0 +1,28 @@
+{
+    "vantage": {
+      "transport": "streamable_http",
+      "url": "https://mcp.alphavantage.co/mcp?apikey=37O1UHI7UOD2GVI5"
+    },
+    "alpaca": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["alpaca-mcp-server"],
+      "env": {
+        "ALPACA_API_KEY": "PKL33CSLBDT32GPFPJSAZGZDG2",
+        "ALPACA_SECRET_KEY": "9LL7pvNVkWyQhJ3aZ5JpSpy9MVThG3D4YMe5CTPYA4Po"
+      }
+    },
+    "risk_gatekeeper": {
+      "transport": "stdio",
+      "command": "/Users/lokesh/desktop/Folder/MCP/Trading-bot/venv/bin/python3",
+      "args": [
+        "/Users/lokesh/desktop/Folder/MCP/Trading-bot/servers/risk_gatekeeper/risk_server.py"
+      ],
+      "env": {
+        "GMAIL_USER": "dumbbu123@gmail.com",
+        "GMAIL_APP_PASS": "lkjt uosk sian hnrn",
+        "MANAGER_EMAIL": "dumbbu123@gmail.com"
+        }
+    }
+  
+}

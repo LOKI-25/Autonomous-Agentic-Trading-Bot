@@ -1,0 +1,179 @@
+<div class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-blue-500/30">
+  
+  <nav class="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white shadow-lg shadow-blue-900/20">L</div>
+        <h1 class="text-xl font-bold tracking-tight text-white"><span class="text-blue-500">Dashboard</span></h1>
+      </div>
+      <div class="flex items-center gap-6">
+        <!-- Navigation Tabs -->
+        <div class="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700">
+          <button (click)="activeTab = 'dashboard'" [class.bg-slate-700]="activeTab === 'dashboard'" [class.text-white]="activeTab === 'dashboard'" class="px-4 py-1.5 text-sm font-medium rounded-md text-slate-400 transition-colors">Dashboard</button>
+          <button (click)="activeTab = 'chat'" [class.bg-slate-700]="activeTab === 'chat'" [class.text-white]="activeTab === 'chat'" class="px-4 py-1.5 text-sm font-medium rounded-md text-slate-400 hover:text-white transition-colors">Terminal</button>
+        </div>
+        <!-- Live Status -->
+        <div class="flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-full border border-slate-700">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          <span class="text-xs font-medium text-slate-300">Live Market Feed</span>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    
+    <!-- DASHBOARD TAB -->
+    <ng-container *ngIf="activeTab === 'dashboard'">
+
+    <div class="flex justify-between items-end mb-8">
+      <div>
+        <h2 class="text-2xl font-bold text-white mb-1">Pending Authorizations</h2>
+        <p class="text-slate-400">Human-in-the-loop verification required for high-value executions.</p>
+      </div>
+      <div *ngIf="isLoading" class="flex items-center gap-2 text-blue-400 text-sm animate-pulse">
+        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24"></svg>
+        Processing...
+      </div>
+    </div>
+
+    <div *ngIf="trades.length === 0" class="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl p-20 text-center">
+      <p class="text-slate-500">All compliance queues are currently clear.</p>
+    </div>
+
+    <div class="grid gap-6">
+      <div *ngFor="let t of trades" class="group bg-slate-900 rounded-3xl border border-slate-800 hover:border-blue-500/50 transition-all duration-300 overflow-hidden shadow-2xl">
+        <div class="p-8">
+          <div class="flex justify-between items-start mb-6">
+            <div class="flex gap-6 items-center">
+              <div class="w-14 h-14 bg-slate-800 rounded-2xl flex items-center justify-center text-2xl font-black text-blue-500">
+                {{t.symbol[0]}}
+              </div>
+              <div>
+                <div class="flex items-center gap-3 mb-1">
+                  <h3 class="text-3xl font-bold text-white tracking-tight">{{t.symbol}}</h3>
+                  <span class="px-2 py-0.5 bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase rounded border border-blue-500/20">Institution Grade</span>
+                </div>
+                <p class="text-slate-500 text-sm font-mono uppercase">{{t.id}} • {{t.timestamp | date:'shortTime'}}</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <p class="text-sm text-slate-500 mb-1 uppercase tracking-widest font-bold">Transaction Value</p>
+              <p class="text-3xl font-bold text-white">${{t.amount | number:'1.2-2'}}</p>
+            </div>
+          </div>
+
+          <div class="bg-slate-950/50 p-6 rounded-2xl border border-slate-800 mb-6 group-hover:bg-blue-950/10 transition-colors">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-blue-500">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"></svg>
+              </span>
+              <span class="text-xs font-bold text-blue-400 uppercase tracking-tighter">AI Investment Memorandum</span>
+            </div>
+            <p class="text-slate-300 italic leading-relaxed text-sm">
+              "{{t.memorandum}}"
+            </p>
+          </div>
+
+          <div class="flex gap-4">
+            <button 
+              (click)="handleAction(t.id, 'approve')" 
+              [disabled]="isLoading"
+              class="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-all active:scale-95 shadow-lg shadow-green-900/20">
+              Confirm Authorization
+            </button>
+            <button 
+              (click)="handleAction(t.id, 'reject')" 
+              [disabled]="isLoading"
+              class="flex-1 bg-slate-800 hover:bg-red-600/20 hover:text-red-500 disabled:opacity-50 text-slate-300 font-bold py-4 rounded-xl border border-slate-700 hover:border-red-500/50 transition-all active:scale-95">
+              Reject Execution
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    </ng-container>
+
+    <!-- TERMINAL / CHAT TAB -->
+    <ng-container *ngIf="activeTab === 'chat'">
+      <div class="max-w-6xl mx-auto flex h-[calc(100vh-12rem)] bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        
+        <!-- Sidebar -->
+        <div class="w-72 bg-slate-950 border-r border-slate-800 flex flex-col">
+          <div class="p-4 border-b border-slate-800">
+            <button (click)="newChat()" class="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-medium transition-all active:scale-95 shadow-lg shadow-blue-900/20">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+              New Trade Chat
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto p-3 space-y-2">
+            <div *ngIf="threads.length === 0" class="text-xs text-slate-500 text-center mt-4 font-medium">
+              No previous chats
+            </div>
+            <button *ngFor="let thread of threads" 
+                    (click)="selectThread(thread.id)"
+                    [class.bg-slate-800]="currentThreadId === thread.id"
+                    [class.border-blue-500]="currentThreadId === thread.id"
+                    [class.text-white]="currentThreadId === thread.id"
+                    class="w-full text-left px-4 py-3 rounded-xl text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent transition-all truncate group">
+              <div class="font-mono text-[10px] text-blue-500 mb-1 tracking-wider uppercase group-hover:text-blue-400">{{thread.title.split('-')[1].trim()}}</div>
+              <div class="truncate font-medium">{{thread.title}}</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="flex-1 flex flex-col relative bg-slate-900">
+          
+          <!-- Chat History -->
+          <div class="flex-1 overflow-y-auto p-6 space-y-6">
+          <div *ngIf="messages.length === 0" class="flex flex-col items-center justify-center h-full text-slate-500">
+            <svg class="w-12 h-12 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+            <p>Welcome to the Autonomous Trading Terminal.</p>
+            <p class="text-sm mt-1">Try saying: "Buy 50 shares of Apple"</p>
+          </div>
+
+          <div *ngFor="let msg of messages" class="flex" [ngClass]="{'justify-end': msg.role === 'user', 'justify-start': msg.role === 'bot'}">
+            <div class="max-w-[80%] rounded-2xl px-5 py-3 shadow-sm" 
+                 [ngClass]="{'bg-blue-600 text-white': msg.role === 'user', 'bg-slate-800 border border-slate-700 text-slate-200': msg.role === 'bot'}">
+              <p class="text-sm leading-relaxed whitespace-pre-wrap">{{msg.content}}</p>
+            </div>
+          </div>
+
+          <div *ngIf="isTyping" class="flex justify-start">
+             <div class="bg-slate-800 border border-slate-700 rounded-2xl px-5 py-4 shadow-sm flex gap-2 items-center">
+               <div class="w-2 h-2 bg-slate-500 rounded-full animate-bounce"></div>
+               <div class="w-2 h-2 bg-slate-500 rounded-full animate-bounce [animation-delay:-.15s]"></div>
+               <div class="w-2 h-2 bg-slate-500 rounded-full animate-bounce [animation-delay:-.3s]"></div>
+             </div>
+          </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="p-4 bg-slate-900 border-t border-slate-800">
+          <form (ngSubmit)="sendMessage()" class="flex gap-3 relative">
+            <input 
+              type="text" 
+              [(ngModel)]="chatInput" 
+              name="chatInput"
+              placeholder="Ask the agent to execute a trade..." 
+              class="flex-1 bg-slate-950 border border-slate-700 text-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+              [disabled]="isTyping"
+              autocomplete="off"
+            >
+            <button 
+              type="submit" 
+              [disabled]="!chatInput || !chatInput.trim() || isTyping"
+              class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-medium transition-all shadow-lg shadow-blue-900/20 active:scale-95 flex items-center justify-center">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+            </button>
+          </form>
+        </div>
+        </div>
+      </div>
+    </ng-container>
+  </main>
+</div>
