@@ -13,7 +13,7 @@ from pathlib import Path
 import os
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from agents.graph_orchestrator import workflow
+from agents.graph_orchestrator import get_workflow
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -92,11 +92,13 @@ def get_db_connection():
     return conn
 
 @app.on_event("startup")
-def startup_db():
+async def startup_events():
     conn = get_db_connection()
     conn.execute('''CREATE TABLE IF NOT EXISTS chat_threads (id TEXT PRIMARY KEY, title TEXT, messages TEXT)''')
     conn.commit()
     conn.close()
+    # Pre-warm the MCP tools and graph on server startup
+    await get_workflow()
 
 @app.get("/")
 def read_root():
@@ -142,6 +144,7 @@ async def initiate_trade(agent_input: AgentInput):
     try:
         async with AsyncSqliteSaver.from_conn_string(DB_PATH) as checkpointer:
             await checkpointer.setup()
+            workflow = await get_workflow()
             app_graph = workflow.compile(checkpointer=checkpointer, interrupt_before=["pause_for_approval"])
             
             # Run the graph until completion or breakpoint
@@ -215,6 +218,7 @@ async def approve_trade(trade_id: str):
     resume_message = HumanMessage(content="SYSTEM OVERRIDE: The manager has explicitly APPROVED the pending trade you just submitted. You MUST now proceed immediately to execute it using your brokerage execution tools. DO NOT call verify_trade_risk again.")
     
     async with AsyncSqliteSaver.from_conn_string(DB_PATH) as checkpointer:
+        workflow = await get_workflow()
         app_graph = workflow.compile(checkpointer=checkpointer, interrupt_before=["pause_for_approval"])
         async for event in app_graph.astream({"messages": [resume_message]}, config):
             print_graph_event(event)
@@ -240,6 +244,7 @@ async def reject_trade(trade_id: str):
     resume_message = HumanMessage(content="SYSTEM OVERRIDE: The manager has explicitly REJECTED the pending trade you just submitted. You MUST output a final plain text message to the user explaining the rejection. DO NOT call any more tools.")
 
     async with AsyncSqliteSaver.from_conn_string(DB_PATH) as checkpointer:
+        workflow = await get_workflow()
         app_graph = workflow.compile(checkpointer=checkpointer, interrupt_before=["pause_for_approval"])
         async for event in app_graph.astream({"messages": [resume_message]}, config):
             print_graph_event(event)
