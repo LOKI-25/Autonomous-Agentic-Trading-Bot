@@ -92,41 +92,36 @@ mcp_config = {
 
 mcp_client = MultiServerMCPClient(mcp_config)
 
-# --- Safely resolve the async get_tools() coroutine ---
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-tools = loop.run_until_complete(mcp_client.get_tools())
-
-# Enable automatic error handling so the LLM can self-correct instead of crashing the server
-for tool in tools:
-    tool.handle_tool_error = True
-
-# --- 2. Define the Agent ---
-
-# Use your preferred LLM. Ensure it's good at tool calling.
-# llm = ChatAnthropic(model="claude-3-haiku-20240307", temperature=0)
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, max_retries=5)
-# Disable parallel tool calls to prevent Alpha Vantage 1 req/sec rate limit errors
-llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
-
-# --- 3. Define the Graph State and Nodes ---
-
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     trade_id: str
 
+_cached_workflow = None
 
-def agent_node(state: AgentState):
-    """The node that runs the LLM agent."""
-    messages = list(state["messages"])
-    # Inject the system prompt if it's not already in the history
-    if not any(isinstance(msg, SystemMessage) for msg in messages):
-        manual = get_compliance_manual()
-        prompt_content = f"""You are an autonomous financial trading assistant.
+async def get_workflow() -> StateGraph:
+    """Asynchronously builds and returns the LangGraph workflow.
+       This prevents 'event loop is already running' errors during Uvicorn startup.
+    """
+    global _cached_workflow
+    if _cached_workflow is not None:
+        return _cached_workflow
+
+    # --- 1. Safely resolve the async get_tools() coroutine ---
+    tools = await mcp_client.get_tools()
+
+    for tool in tools:
+        tool.handle_tool_error = True
+
+    # --- 2. Define the Agent ---
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, max_retries=5)
+    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
+
+    # --- 3. Define the Nodes ---
+    def agent_node(state: AgentState):
+        messages = list(state["messages"])
+        if not any(isinstance(msg, SystemMessage) for msg in messages):
+            manual = get_compliance_manual()
+            prompt_content = f"""You are an autonomous financial trading assistant.
 Your primary directive is to execute trades, provide market analysis, and adhere strictly to the Institutional Compliance Manual below.
 
 --- INSTITUTIONAL COMPLIANCE MANUAL ---
@@ -142,69 +137,61 @@ CORE BEHAVIORS:
 - COMPLIANCE FIRST: You are STRICTLY FORBIDDEN from executing any live trades before verifying risk and receiving an 'APPROVED' signal.
 - EXTERNAL SCHEMAS: For external market data tools, ensure you follow their specific nested JSON schemas if required (e.g., wrapping inputs in an `arguments` object).
 - MANAGER OVERRIDES: Immediately obey any human manager APPROVED or REJECTED override messages."""
-        sys_msg = SystemMessage(content=prompt_content)
-        messages.insert(0, sys_msg)
+            sys_msg = SystemMessage(content=prompt_content)
+            messages.insert(0, sys_msg)
 
-    result = llm_with_tools.invoke(messages)
-    return {"messages": [result]}
+        result = llm_with_tools.invoke(messages)
+        return {"messages": [result]}
 
-tool_node = ToolNode(tools)
+    tool_node = ToolNode(tools)
 
-def human_approval_node(state: AgentState):
-    """The node that represents the human-in-the-loop breakpoint."""
-    print(f"--- PAUSING FOR HUMAN APPROVAL ---")
-    print(f"Trade {state['trade_id']} is waiting for a manager to approve/reject.")
-    print(f"----------------------------------")
-    return {}
+    def human_approval_node(state: AgentState):
+        print(f"--- PAUSING FOR HUMAN APPROVAL ---")
+        print(f"Trade {state['trade_id']} is waiting for a manager to approve/reject.")
+        print(f"----------------------------------")
+        return {}
 
-# --- 4. Build the Routing & Graph ---
+    # --- 4. Build the Routing & Graph ---
+    def route_after_agent(state: AgentState) -> str:
+        last_message = state["messages"][-1]
+        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+            return "tools"
+        return "end"
 
-def route_after_agent(state: AgentState) -> str:
-    """Router function to decide the next step after the agent node."""
-    last_message = state["messages"][-1]
+    def should_continue(state: AgentState) -> str:
+        for msg in reversed(state["messages"]):
+            if not isinstance(msg, ToolMessage):
+                break
+            if msg.name == "request_human_approval":
+                return "pause_for_approval"
+        return "agent"
 
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "tools"
+    workflow = StateGraph(AgentState)
+    workflow.add_node("agent", agent_node)
+    workflow.add_node("tools", tool_node)
+    workflow.add_node("pause_for_approval", human_approval_node)
 
-    return "end"
+    workflow.set_entry_point("agent")
+    workflow.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "end": END})
+    workflow.add_conditional_edges("tools", should_continue, {"pause_for_approval": "pause_for_approval", "agent": "agent"})
+    workflow.add_edge("pause_for_approval", "agent")
 
-
-def should_continue(state: AgentState) -> str:
-    """Router function to decide the next step after the tools execute."""
-    for msg in reversed(state["messages"]):
-        if not isinstance(msg, ToolMessage):
-            break  # Stop searching past the most recent batch of tool results
-        if msg.name == "request_human_approval":
-            return "pause_for_approval"
-
-    # Always continue agent after tools unless we are pausing.
-    return "agent"
-
-workflow = StateGraph(AgentState)
-workflow.add_node("agent", agent_node)
-workflow.add_node("tools", tool_node)
-workflow.add_node("pause_for_approval", human_approval_node)
-
-workflow.set_entry_point("agent")
-workflow.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "end": END})
-workflow.add_conditional_edges("tools", should_continue, {"pause_for_approval": "pause_for_approval", "agent": "agent"})
-workflow.add_edge("pause_for_approval", "agent")
-
-# Build with Checkpointer
-db_path = str(base_dir / "servers" / "risk_gatekeeper" / "audit_log.db")
-# The graph will now pause whenever it reaches the `human_approval_node`
-# We export the uncompiled workflow. It will be compiled with the async checkpointer in the FastAPI routes.
-app_graph = workflow.compile()
+    _cached_workflow = workflow
+    return workflow
 
 # --- Export the Graph ---
 if __name__ == "__main__":
-    print("[LangGraph] Workflow compiled and ready.")
-    # Generate and save the flowchart
-    try:
-        image_bytes = app_graph.get_graph().draw_mermaid_png()
-        output_path = Path(__file__).parent / "graph_flowchart.png"
-        with open(output_path, "wb") as f:
-            f.write(image_bytes)
-        print(f"[LangGraph] Flowchart saved to {output_path}")
-    except Exception as e:
-        print(f"[LangGraph] Could not generate flowchart. Make sure pygraphviz and Pillow are installed. Error: {e}")
+    async def generate_flowchart():
+        workflow = await get_workflow()
+        app_graph = workflow.compile()
+        print("[LangGraph] Workflow compiled and ready.")
+        try:
+            image_bytes = app_graph.get_graph().draw_mermaid_png()
+            output_path = Path(__file__).parent / "graph_flowchart.png"
+            with open(output_path, "wb") as f:
+                f.write(image_bytes)
+            print(f"[LangGraph] Flowchart saved to {output_path}")
+        except Exception as e:
+            print(f"[LangGraph] Could not generate flowchart. Error: {e}")
+            
+    asyncio.run(generate_flowchart())
