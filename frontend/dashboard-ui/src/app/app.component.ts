@@ -4,6 +4,7 @@ import { TradeService } from './services/trade.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { environment } from '../environments/environment';
+import { MarkdownModule } from 'ngx-markdown';
 
 interface ChatThread {
   id: string;
@@ -12,7 +13,7 @@ interface ChatThread {
 }
 
 @Component({
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MarkdownModule],
   selector: 'app-root',
   templateUrl: './app.component.html'
 })
@@ -63,10 +64,25 @@ export class AppComponent implements OnInit, OnDestroy {
       : this.tradeService.rejectTrade(id);
     
     request.pipe(takeUntil(this.destroy$)).subscribe({
-      next: () => {
+      next: (response: any) => {
         // NOTE: We do NOT call refreshTrades() here.
         // We trust the SSE stream to push the update once the DB changes.
         console.log(`Action ${action} sent for Trade ID: ${id}`);
+        
+        // Automatically push the AI's background execution response into the chat history!
+        if (response && response.thread_id && response.message) {
+          const thread = this.threads.find(t => t.id === response.thread_id);
+          if (thread) {
+            thread.messages.push({ role: 'bot', content: response.message });
+            
+            // Sync to the backend immediately so it's persisted in the DB
+            fetch(`${this.apiUrl}/sync-chat`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(thread)
+            }).catch(err => console.error('Failed to sync thread', err));
+          }
+        }
       },
       error: (err) => {
         console.error('Action failed:', err);

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import sqlite3
 import json
 import asyncio
+import re
 import uuid
 from typing import Optional
 
@@ -94,6 +95,7 @@ def get_db_connection():
 async def startup_events():
     conn = get_db_connection()
     conn.execute('''CREATE TABLE IF NOT EXISTS chat_threads (id TEXT PRIMARY KEY, title TEXT, messages TEXT)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS approval_threads (approval_id TEXT PRIMARY KEY, thread_id TEXT)''')
     conn.commit()
     conn.close()
     # Pre-warm the MCP tools and graph on server startup
@@ -150,6 +152,20 @@ async def initiate_trade(agent_input: AgentInput):
             async for event in app_graph.astream(input_state, config):
                 print_graph_event(event)
                 
+                # Map the Approval ID to the correct LangGraph Thread ID
+                for node_name, node_state in event.items():
+                    if node_name == "tools":
+                        messages = node_state.get("messages", [])
+                        if not isinstance(messages, list): messages = [messages]
+                        for msg in messages:
+                            if isinstance(msg, ToolMessage) and msg.name == "request_human_approval":
+                                match = re.search(r"Request ([a-zA-Z0-9]+) submitted", str(msg.content))
+                                if match:
+                                    conn = get_db_connection()
+                                    conn.execute("INSERT OR REPLACE INTO approval_threads (approval_id, thread_id) VALUES (?, ?)", (match.group(1), trade_id))
+                                    conn.commit()
+                                    conn.close()
+                
             state = await app_graph.aget_state(config)
             if state.next and "pause_for_approval" in state.next:
                 return {"message": "Trade paused for human approval.", "trade_id": trade_id, "status": "pending_approval"}
@@ -199,56 +215,82 @@ async def stream_trades():
 @app.post("/approve/{trade_id}")
 async def approve_trade(trade_id: str):
     """Manager override: Set trade to APPROVED."""
+    approval_id = trade_id
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE trade_approvals SET status = 'APPROVED' WHERE id = ?", (trade_id,))
+    cursor.execute("UPDATE trade_approvals SET status = 'APPROVED' WHERE id = ?", (approval_id,))
     if cursor.rowcount == 0:
         conn.close()
         raise HTTPException(status_code=404, detail="Trade ID not found")
+        
+    # Find the matching LangGraph Thread
+    row = cursor.execute("SELECT thread_id FROM approval_threads WHERE approval_id = ?", (approval_id,)).fetchone()
+    thread_id = row["thread_id"] if row else approval_id
+    
     conn.commit()
     conn.close()
     new_trade_event.set()
     
     # --- WEBHOOK RESUME SIGNAL ---
-    config = {"configurable": {"thread_id": trade_id}}
-    print(f"--> Resuming graph for trade {trade_id} (APPROVED)...")
+    config = {"configurable": {"thread_id": thread_id}}
+    print(f"--> Resuming graph for trade {thread_id} (APPROVED)...")
     # We inject a message back into the agent's history to inform it of the approval
     # This is a more robust way to resume than just changing a boolean flag.
     resume_message = HumanMessage(content="SYSTEM OVERRIDE: The manager has explicitly APPROVED the pending trade you just submitted. You MUST now proceed immediately to execute it using your brokerage execution tools. DO NOT call verify_trade_risk again.")
     
+    final_response = "Trade approved and execution process completed."
     async with AsyncSqliteSaver.from_conn_string(DB_PATH) as checkpointer:
         workflow = await get_workflow()
         app_graph = workflow.compile(checkpointer=checkpointer, interrupt_before=["pause_for_approval"])
         async for event in app_graph.astream({"messages": [resume_message]}, config):
             print_graph_event(event)
+            for node_name, node_state in event.items():
+                if "messages" in node_state:
+                    msgs = node_state["messages"] if isinstance(node_state["messages"], list) else [node_state["messages"]]
+                    for msg in msgs:
+                        if isinstance(msg, AIMessage) and msg.content:
+                            final_response = msg.content
             
-    return {"message": f"Trade {trade_id} APPROVED by Manager."}
+    return {"message": final_response, "thread_id": thread_id}
 
 @app.post("/reject/{trade_id}")
 async def reject_trade(trade_id: str):
     """Manager override: Set trade to REJECTED."""
+    approval_id = trade_id
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE trade_approvals SET status = 'REJECTED' WHERE id = ?", (trade_id,))
+    cursor.execute("UPDATE trade_approvals SET status = 'REJECTED' WHERE id = ?", (approval_id,))
     if cursor.rowcount == 0:
         conn.close()
         raise HTTPException(status_code=404, detail="Trade ID not found")
+        
+    # Find the matching LangGraph Thread
+    row = cursor.execute("SELECT thread_id FROM approval_threads WHERE approval_id = ?", (approval_id,)).fetchone()
+    thread_id = row["thread_id"] if row else approval_id
+    
     conn.commit()
     conn.close()
     new_trade_event.set()
     
     # --- WEBHOOK RESUME SIGNAL ---
-    config = {"configurable": {"thread_id": trade_id}}
-    print(f"--> Resuming graph for trade {trade_id} (REJECTED)...")
+    config = {"configurable": {"thread_id": thread_id}}
+    print(f"--> Resuming graph for trade {thread_id} (REJECTED)...")
     resume_message = HumanMessage(content="SYSTEM OVERRIDE: The manager has explicitly REJECTED the pending trade you just submitted. You MUST output a final plain text message to the user explaining the rejection. DO NOT call any more tools.")
 
+    final_response = "Trade rejected by manager."
     async with AsyncSqliteSaver.from_conn_string(DB_PATH) as checkpointer:
         workflow = await get_workflow()
         app_graph = workflow.compile(checkpointer=checkpointer, interrupt_before=["pause_for_approval"])
         async for event in app_graph.astream({"messages": [resume_message]}, config):
             print_graph_event(event)
+            for node_name, node_state in event.items():
+                if "messages" in node_state:
+                    msgs = node_state["messages"] if isinstance(node_state["messages"], list) else [node_state["messages"]]
+                    for msg in msgs:
+                        if isinstance(msg, AIMessage) and msg.content:
+                            final_response = msg.content
             
-    return {"message": f"Trade {trade_id} REJECTED by Manager."}
+    return {"message": final_response, "thread_id": thread_id}
 
 @app.post("/notify")
 def notify_update():

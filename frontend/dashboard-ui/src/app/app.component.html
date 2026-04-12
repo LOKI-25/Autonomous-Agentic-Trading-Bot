@@ -139,7 +139,7 @@
           <div *ngFor="let msg of messages" class="flex" [ngClass]="{'justify-end': msg.role === 'user', 'justify-start': msg.role === 'bot'}">
             <div class="max-w-[80%] rounded-2xl px-5 py-3 shadow-sm" 
                  [ngClass]="{'bg-blue-600 text-white': msg.role === 'user', 'bg-slate-800 border border-slate-700 text-slate-200': msg.role === 'bot'}">
-              <p class="text-sm leading-relaxed whitespace-pre-wrap">{{msg.content}}</p>
+              <markdown [data]="msg.content" [ngClass]="msg.role === 'bot' ? 'prose prose-invert max-w-none' : 'whitespace-pre-wrap'"></markdown>
             </div>
           </div>
 

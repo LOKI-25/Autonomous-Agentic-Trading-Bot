@@ -1,8 +1,9 @@
 import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { provideClientHydration, withEventReplay } from '@angular/platform-browser';
 import { provideHttpClient } from '@angular/common/http';
+import { provideMarkdown } from 'ngx-markdown';
 
 export const appConfig: ApplicationConfig = {
-  providers: [provideZoneChangeDetection({ eventCoalescing: true }), provideClientHydration(withEventReplay()),provideHttpClient()]
+  providers: [provideZoneChangeDetection({ eventCoalescing: true }), provideClientHydration(withEventReplay()),provideHttpClient(), provideMarkdown()]
 
 };
