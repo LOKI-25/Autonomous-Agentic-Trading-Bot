@@ -89,6 +89,22 @@ resource "aws_s3_bucket_website_configuration" "frontend_website" {
   error_document { key = "index.html" }
 }
 
+resource "aws_s3_bucket_policy" "frontend_public_policy" {
+  bucket = aws_s3_bucket.frontend_bucket.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.frontend_bucket.arn}/*"
+      },
+    ]
+  })
+}
+
 # --- 4. OUTPUTS ---
 output "backend_api_url" {
   value = "http://${aws_instance.backend_server.public_ip}:8000"
