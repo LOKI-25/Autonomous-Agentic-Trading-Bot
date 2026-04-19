@@ -64,15 +64,15 @@ mcp_config = {
     "vantage": {
       "transport": "stdio",
       "command": "uvx",
-      "args": [ "--from", "marketdata-mcp-server", "marketdata-mcp", "S7BD5372Z7Q0JRKQ" ]
+      "args": [ "--from", "marketdata-mcp-server", "marketdata-mcp", os.getenv("ALPHA_VANTAGE_API_KEY", "") ]
     },
     "alpaca": {
       "transport": "stdio",
       "command": "uvx",
       "args": ["alpaca-mcp-server"],
       "env": {
-        "ALPACA_API_KEY": "PKL33CSLBDT32GPFPJSAZGZDG2",
-        "ALPACA_SECRET_KEY": "9LL7pvNVkWyQhJ3aZ5JpSpy9MVThG3D4YMe5CTPYA4Po"
+        "ALPACA_API_KEY": os.getenv("ALPACA_API_KEY", ""),
+        "ALPACA_SECRET_KEY": os.getenv("ALPACA_SECRET_KEY", "")
       }
     },
     "risk_gatekeeper": {
@@ -82,9 +82,9 @@ mcp_config = {
         risk_server_path
       ],
       "env": {
-        "GMAIL_USER": "dumbbu123@gmail.com",
-        "GMAIL_APP_PASS": "lkjt uosk sian hnrn",
-        "MANAGER_EMAIL": "dumbbu123@gmail.com"
+        "GMAIL_USER": os.getenv("GMAIL_USER", ""),
+        "GMAIL_APP_PASS": os.getenv("GMAIL_APP_PASS", ""),
+        "MANAGER_EMAIL": os.getenv("MANAGER_EMAIL", "")
         }
     }
   

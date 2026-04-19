@@ -1,40 +1,47 @@
 # Autonomous Agentic Trading Bot & Institutional Risk Gatekeeper
 
-A production-grade, human-in-the-loop (HITL) AI trading system built using the **Model Context Protocol (MCP)**. This project demonstrates an autonomous agent capable of financial analysis and execution, governed by a stateless risk engine and a real-time reactive dashboard.
+A production-grade, autonomous AI trading system built using **LangGraph**, the **Model Context Protocol (MCP)**, and **Terraform** for AWS deployment. This project demonstrates an agentic workflow capable of complex financial analysis and execution, governed by a strict risk engine and a real-time, Human-in-the-Loop (HITL) reactive dashboard.
 
 ## 🏗 System Architecture
 
 The project is architected as a decoupled multi-service system:
-1.  **Policy Engine (MCP Server)**: A Python-based FastMCP server that acts as the "Law of the Land," enforcing institutional guardrails and compliance tools.
-2.  **Middleware (FastAPI)**: An asynchronous bridge managing the audit trail, real-time data streaming (SSE), and webhook coordination.
-3.  **Manager Console (Angular 19)**: A high-performance, reactive dashboard built with TypeScript and Tailwind CSS for manual trade authorization and portfolio monitoring.
+1.  **Agent Orchestrator (LangGraph & OpenAI)**: A stateful graph agent that reasons through market data, decides on trades, and maintains conversation memory via SQLite checkpointing.
+2.  **Policy Engine (MCP Servers)**: Standardized integration with Alpha Vantage (Market Data), Alpaca (Brokerage), and a custom FastMCP Risk Gatekeeper enforcing institutional guardrails.
+3.  **Middleware (FastAPI)**: An asynchronous bridge managing the graph execution, audit trails, real-time Server-Sent Events (SSE), and webhook coordination.
+4.  **Manager Console (Angular 19)**: A high-performance, reactive dashboard for chat interactions, manual trade authorization, and portfolio monitoring.
+5.  **Infrastructure as Code (AWS Terraform)**: Fully automated deployment pipeline provisioning EC2 instances, S3 static website hosting, and secure environment variable injection.
 
 ---
 
 ## 🚀 Key Features
 
-### 1. Institutional Governance (MCP)
+### 1. LangGraph State Management & HITL
+* **Asynchronous Resumption**: LLM execution is programmatically paused (`interrupt_before`) for high-value trades. The agent's state is serialized to a database, awaiting a manual "Approve" signal from the dashboard to resume execution on the exact thread.
+* **Memory Checkpointing**: Maintains a continuous chat interface, allowing the AI to remember historical context and previous market analysis.
+
+### 2. Institutional Governance (MCP)
 * **Auto-Trade Ceiling**: Programmatically blocks any trade exceeding **$5,000** for manual review.
 * **Restricted Asset List**: Hard-coded rejection of volatile assets (e.g., GME, AMC, DOGE).
-* **Smart Analyst Memorandum**: Requires the LLM to generate a structured 3-sentence investment rationale before trade submission.
+* **Smart Analyst Memorandum**: Requires the LLM to generate a structured investment rationale and compliance rating before trade submission.
 
-### 2. Financial Circuit Breaker
+### 3. Financial Circuit Breaker
 The system automatically suspends all trading activities if the daily portfolio loss exceeds a defined threshold:
 $$Loss\% = \frac{CurrentEquity - PreviousClose}{PreviousClose} \times 100 \le -2.0\%$$
 
-### 3. Human-in-the-Loop (HITL) 
-* **Asynchronous Resumption**: LLM execution is paused for high-value trades, awaiting a manual "Approve" signal from the dashboard.
-* **Real-Time Sync**: Utilizes **Server-Sent Events (SSE)** to push updates from the backend to the UI in sub-seconds, eliminating polling.
+### 4. Infrastructure as Code (IaC)
+* **One-Click Deployment**: A single bash script (`deploy.sh`) triggers Terraform to build, configure, and deploy the entire AWS architecture.
+* **Dynamic Configuration**: Terraform auto-injects EC2 public IPs into the Angular environment files at build time for seamless API connectivity.
 
 ---
 
 ## 🛠 Tech Stack
 
 * **Languages**: Python 3.12+, TypeScript
-* **AI Framework**: FastMCP (Model Context Protocol), Claude Code
-* **Backend**: FastAPI, Uvicorn, SQLite
+* **AI Framework**: LangGraph, LangChain, OpenAI (GPT-4o-mini), Model Context Protocol (MCP)
+* **Backend**: FastAPI, Uvicorn, SQLite, `uv` (Rust-based Python package manager)
 * **Frontend**: Angular 19, RxJS, Tailwind CSS
-* **Tools**: Alpaca Markets API (Paper Trading)
+* **Infrastructure**: HashiCorp Terraform, AWS EC2, AWS S3
+* **Data Providers**: Alpha Vantage API, Alpaca Markets API (Paper Trading)
 
 ---
 
@@ -42,13 +49,15 @@ $$Loss\% = \frac{CurrentEquity - PreviousClose}{PreviousClose} \times 100 \le -2
 
 ```text
 Trading-bot/
+├── agents/
+│   └── graph_orchestrator.py # LangGraph definition and Multi-Server MCP client
 ├── servers/
 │   └── risk_gatekeeper/      # MCP Policy Engine & FastAPI Middleware
 ├── frontend/
 │   └── dashboard-ui/         # Angular 19 Reactive Dashboard
-├── infrastructure/           # Terraform Cloud Configurations
-├── config/                   # MCP settings.json & Environment variables
-└── audit_log.db              # SQLite Persistent Audit Trail
+├── main.tf                   # Terraform Infrastructure definition
+├── deploy.sh                 # Deployment automation script
+└── terraform.tfvars          # (Ignored) Secure API keys for AWS injection
 ```
 
 ---
